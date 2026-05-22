@@ -22,6 +22,8 @@
           <h2>Папки</h2>
           <label>Gallery: <input type="text" name="gallery" value="{{ default_gallery }}"></label>
           <label>Target: <input type="text" name="target" value="{{ default_target }}"></label>
+          <label>Видео (локальный путь): <input type="text" name="video_path" placeholder="path/to/video.mp4"></label>
+          <label>Загрузить видео: <input type="file" name="video_file" accept="video/*"></label>
         </section>
 
         <section class="card">
@@ -35,6 +37,7 @@
           <button name="action" value="search_target" class="btn">Поиск конкретного человека (target)</button>
           <button name="action" value="search_all" class="btn">Поиск всех совпадений</button>
           <button name="action" value="initialize_people" class="btn">Инициализация людей (сохранить эмбеддинги)</button>
+          <button formaction="/process_video" formmethod="post" class="btn">Обработать видео (асинхронно)</button>
         </section>
       </form>
       <footer>Тема: тёмные пастельные тона • Интерфейс локальный</footer>

@@ -12,3 +12,8 @@ fastapi
 uvicorn[standard]
 jinja2
 python-multipart
+ultralytics
+opencv-python
+matplotlib
+pandas
+openpyxl

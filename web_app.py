@@ -5,6 +5,10 @@ from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
+from fastapi import UploadFile, File
+import threading
+import uuid
+import shutil
 
 load_dotenv()
 
@@ -15,6 +19,7 @@ from search_target import (
     build_target_embedding,
     search,
 )
+from video_processor import process_video
 
 BASE_DIR = Path(__file__).parent
 app = FastAPI()
@@ -45,6 +50,71 @@ async def index(request: Request):
     html = html.replace("{{ default_target }}", DEFAULT_TARGET)
     
     return HTMLResponse(content=html)
+
+
+# Simple job store for background video tasks
+JOBS = {}
+
+
+@app.post("/process_video", response_class=HTMLResponse)
+async def process_video_endpoint(request: Request, video_file: UploadFile | None = File(default=None)):
+    form = await request.form()
+    gallery = form.get("gallery") or DEFAULT_GALLERY
+    video_path = form.get("video_path") or None
+    onnx_path = form.get("onnx_path")
+    trt_path = form.get("trt_path")
+    use_cuda_flag = form.get("use_cuda") == "on"
+
+    upload_path = None
+    if video_file is not None and getattr(video_file, "filename", None):
+        uploads_dir = BASE_DIR / "uploads"
+        uploads_dir.mkdir(exist_ok=True)
+        upload_path = uploads_dir / video_file.filename
+        with open(upload_path, "wb") as f:
+            shutil.copyfileobj(video_file.file, f)
+        video_path = str(upload_path)
+
+    if not video_path:
+        return HTMLResponse(content="No video provided", status_code=400)
+
+    # prepare model loader
+    def _job_runner(job_id: str):
+        JOBS[job_id] = {"status": "running", "result": None}
+        try:
+            model = _load_model(bool(trt_path), trt_path, onnx_path, use_cuda_flag)
+            out_json = process_video(video_path, model, out_dir=str(BASE_DIR / "data"))
+            model.close()
+            JOBS[job_id]["status"] = "done"
+            JOBS[job_id]["result"] = out_json
+        except Exception as e:
+            JOBS[job_id]["status"] = "error"
+            JOBS[job_id]["result"] = str(e)
+
+    job_id = uuid.uuid4().hex
+    JOBS[job_id] = {"status": "queued", "result": None}
+    t = threading.Thread(target=_job_runner, args=(job_id,), daemon=True)
+    t.start()
+
+    return HTMLResponse(content=f"Job started: {job_id}. Check /status/{job_id}")
+
+
+@app.get("/status/{job_id}")
+async def job_status(job_id: str):
+    info = JOBS.get(job_id)
+    if not info:
+        return {"error": "job not found"}
+    return info
+
+
+@app.get("/result/{job_id}")
+async def job_result(job_id: str):
+    info = JOBS.get(job_id)
+    if not info:
+        return HTMLResponse(content="job not found", status_code=404)
+    if info["status"] != "done":
+        return HTMLResponse(content=f"job status: {info['status']}", status_code=400)
+    path = info["result"]
+    return HTMLResponse(content=f"Result saved: {path}")
 
 
 def _load_model(use_trt_path, trt_path, onnx_path, use_cuda_flag):
