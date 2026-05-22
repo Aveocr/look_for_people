@@ -102,3 +102,62 @@ std  = [0.26862954, 0.26130258, 0.27577711]
 - **CLIP-ReID (GitHub):** https://github.com/Syliz517/CLIP-ReID
 - **Статья (AAAI 2023):** *CLIP-ReID: Exploiting Vision-Language Model for Image Re-Identification without Concrete Text Labels*, Siyuan Li et al.
 - **CLIP (OpenAI):** https://github.com/openai/CLIP
+
+---
+
+## Веб-интерфейс и утилиты (быстрый запуск)
+
+В репозитории добавлен простой веб-интерфейс для локальной работы с CLIP-ReID и утилита поиска по папке `target`.
+
+- Конфигурация примера: [.env.example](.env.example#L1)
+- Скрипт поиска (CLI): [search_target.py](search_target.py#L1)
+- Веб-приложение (Flask): [web_app.py](web_app.py#L1)
+- Шаблоны и стили: [templates/index.html](templates/index.html#L1), [static/style.css](static/style.css#L1)
+
+Установка зависимостей (виртуальное окружение рекомендуется):
+
+```bash
+python -m venv .venv
+source .venv/bin/activate  # или `.venv\Scripts\activate` на Windows
+pip install -r requirements.txt
+```
+
+Настройка `.env`:
+
+```bash
+cp .env.example .env
+# Отредактируйте .env: укажите MODEL_ONNX/MODEL_TRT, GALLERY_DIR, TARGET_DIR
+```
+
+Запуск веб-интерфейса (локально):
+
+```bash
+python web_app.py
+# Откройте http://localhost:5000
+```
+
+Примеры использования CLI (альтернативно без веба):
+
+```bash
+# ONNX
+python search_target.py --onnx model.onnx --target path/to/target --gallery data/persons --k 5
+
+# TensorRT
+python search_target.py --trt model.trt --target path/to/target --gallery data/persons --k 5
+```
+
+Что делает UI/утилиты
+- Поиск конкретного человека по изображениям в папке `target` (усреднение эмбеддингов из папки)
+- Поиск всех совпадений между персонами галереи (простая проверка по порогу)
+- Инициализация людей — сохраняет файл `data/people_init.json` с PID и усреднёнными эмбеддингами (основа для трекинга)
+
+Ограничения и рекомендации
+- В текущей версии «По лицу» в интерфейсе — переключатель интерфейса; реальный face-пайплайн (детекция лиц + face-embedder) не встроен. Для этого нужно добавить face-детектор (например, MTCNN) и face-эмбеддер (ArcFace / InsightFace) в ONNX/TRT.
+- TensorRT требует установки NVIDIA TensorRT SDK и `pycuda`/`tensorrt` в среде; engine `.trt` должен быть совместим с вашей GPU.
+- Для больших галерей стоит кешировать эмбеддинги и запускать операции в фоне (Celery / threading) — могу добавить фоновую очередь и прогресс-бар.
+
+Дальше я могу:
+- добавить поддержку загрузки пользовательской эмбеддинговой модели через веб-интерфейс (файлоприёмник),
+- интегрировать face-pipeline (MTCNN + ArcFace ONNX) и переключение методов поиска между лицом и телом,
+- добавить экспорт результатов в CSV и копирование топ-N кропов в `results/`.
+

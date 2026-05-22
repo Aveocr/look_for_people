@@ -1,0 +1,14 @@
+flask
+python-dotenv
+onnxruntime
+numpy
+Pillow
+torchvision
+torch
+# Optional (only if using TensorRT locally):
+# tensorrt
+# pycuda
+fastapi
+uvicorn[standard]
+jinja2
+python-multipart

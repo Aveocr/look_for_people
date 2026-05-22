@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CLIP-ReID Web Interface</title>
+    <link rel="stylesheet" href="/static/style.css">
+  </head>
+  <body>
+    <div class="container">
+      <h1>CLIP-ReID — Поиск людей</h1>
+
+      <form action="/run" method="post">
+        <section class="card">
+          <h2>Модель</h2>
+          <label>ONNX модель (путь): <input type="text" name="onnx_path" value="{{ default_onnx or '' }}"></label>
+          <label>TensorRT engine (путь): <input type="text" name="trt_path" value="{{ default_trt or '' }}"></label>
+          <label><input type="checkbox" name="use_cuda"> Использовать CUDA для ONNX</label>
+        </section>
+
+        <section class="card">
+          <h2>Папки</h2>
+          <label>Gallery: <input type="text" name="gallery" value="{{ default_gallery }}"></label>
+          <label>Target: <input type="text" name="target" value="{{ default_target }}"></label>
+        </section>
+
+        <section class="card">
+          <h2>Методы поиска</h2>
+          <label><input type="checkbox" name="method_face"> По лицу</label>
+          <label><input type="checkbox" name="method_body" checked> По телу</label>
+        </section>
+
+        <section class="card">
+          <h2>Задача</h2>
+          <button name="action" value="search_target" class="btn">Поиск конкретного человека (target)</button>
+          <button name="action" value="search_all" class="btn">Поиск всех совпадений</button>
+          <button name="action" value="initialize_people" class="btn">Инициализация людей (сохранить эмбеддинги)</button>
+        </section>
+      </form>
+      <footer>Тема: тёмные пастельные тона • Интерфейс локальный</footer>
+    </div>
+  </body>
+</html>
