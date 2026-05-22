@@ -1,9 +1,9 @@
 import os
 import json
+from pathlib import Path
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -16,9 +16,13 @@ from search_target import (
     search,
 )
 
+BASE_DIR = Path(__file__).parent
 app = FastAPI()
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+
+# Mount static files
+static_dir = BASE_DIR / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 # Defaults from environment
 DEFAULT_ONNX = os.environ.get("MODEL_ONNX")
@@ -30,16 +34,17 @@ USE_CUDA = os.environ.get("USE_CUDA", "false").lower() in ("1", "true", "yes")
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse(
-        "index.html",
-        {
-            "request": request,
-            "default_onnx": DEFAULT_ONNX,
-            "default_trt": DEFAULT_TRT,
-            "default_gallery": DEFAULT_GALLERY,
-            "default_target": DEFAULT_TARGET,
-        },
-    )
+    # Read and render template manually
+    with open(BASE_DIR / "templates" / "index.html", "r", encoding="utf-8") as f:
+        html = f.read()
+    
+    # Simple template substitution
+    html = html.replace("{{ default_onnx or '' }}", DEFAULT_ONNX or "")
+    html = html.replace("{{ default_trt or '' }}", DEFAULT_TRT or "")
+    html = html.replace("{{ default_gallery }}", DEFAULT_GALLERY)
+    html = html.replace("{{ default_target }}", DEFAULT_TARGET)
+    
+    return HTMLResponse(content=html)
 
 
 def _load_model(use_trt_path, trt_path, onnx_path, use_cuda_flag):
@@ -67,8 +72,6 @@ async def run_action(request: Request):
     trt_path = form.get("trt_path")
     use_trt = bool(trt_path)
     use_cuda_flag = form.get("use_cuda") == "on"
-    method_face = form.get("method_face") == "on"
-    method_body = form.get("method_body") == "on"
 
     # initialize model
     try:
@@ -123,7 +126,15 @@ async def run_action(request: Request):
         return HTMLResponse(content="Unknown action", status_code=400)
 
     model.close()
-    return templates.TemplateResponse("results.html", {"request": request, "result": result})
+    
+    # Render results template manually
+    with open(BASE_DIR / "templates" / "results.html", "r", encoding="utf-8") as f:
+        html = f.read()
+    
+    # Replace result dict with JSON
+    html = html.replace("{{ result | tojson(indent=2, ensure_ascii=False) }}", json.dumps(result, indent=2, ensure_ascii=False))
+    
+    return HTMLResponse(content=html)
 
 
 if __name__ == "__main__":
