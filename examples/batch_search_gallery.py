@@ -96,11 +96,11 @@ def main():
             continue
 
         match_paths = []
-        for rank, (idx, score) in enumerate(results):
+        for rank, (idx, score) in enumerate(zip(*results), start=1):
+            idx = int(idx)
             pid = pids[idx]
             img_path = rep_images[idx]
             ts = datetime.now().isoformat()
-            # try detect face presence
             face_in_target = detect_face_presence(target_img)
             face_in_match = detect_face_presence(img_path)
             rows.append({

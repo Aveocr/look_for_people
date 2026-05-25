@@ -46,7 +46,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument('--onnx', required=True)
     p.add_argument('--gallery', default='data/outputs/img')
-    p.add_argument('--targets', nargs='*', help='List of target image files to search')
+    p.add_argument('--targets', nargs='+', help='List of target image files to search', required=True)
     p.add_argument('--out', default='results_specific')
     p.add_argument('--topk', type=int, default=8)
     p.add_argument('--use_cuda', action='store_true')
@@ -72,7 +72,8 @@ def main():
             target_emb = build_target_embedding(str(tmp), model, batch_size=1)
             results = search(gallery_embs, target_emb, topk=args.topk)
             match_paths = []
-            for idx, score in results:
+            for idx, score in zip(*results):
+                idx = int(idx)
                 match_paths.append(rep_images[idx])
                 rows.append({
                     'query_file': str(tfile),
