@@ -19,7 +19,7 @@ from search_target import (
     build_target_embedding,
     search,
 )
-from video_processor import process_video, extract_face_crops
+from video_processor import process_video
 
 BASE_DIR = Path(__file__).parent
 app = FastAPI()
@@ -34,8 +34,6 @@ DEFAULT_ONNX = os.environ.get("MODEL_ONNX")
 DEFAULT_TRT = os.environ.get("MODEL_TRT")
 DEFAULT_GALLERY = os.environ.get("GALLERY_DIR", "data/persons")
 DEFAULT_TARGET = os.environ.get("TARGET_DIR", "target")
-DEFAULT_FACE_MODEL = os.environ.get("MODEL_FACE_YOLO")
-DEFAULT_BODY_MODEL = os.environ.get("MODEL_BODY_YOLO")
 USE_CUDA = os.environ.get("USE_CUDA", "false").lower() in ("1", "true", "yes")
 
 
@@ -62,7 +60,6 @@ JOBS = {}
 async def process_video_endpoint(request: Request, video_file: UploadFile | None = File(default=None)):
     form = await request.form()
     gallery = form.get("gallery") or DEFAULT_GALLERY
-    target = form.get("target") or DEFAULT_TARGET
     video_path = form.get("video_path") or None
     onnx_path = form.get("onnx_path")
     trt_path = form.get("trt_path")
@@ -80,40 +77,15 @@ async def process_video_endpoint(request: Request, video_file: UploadFile | None
     if not video_path:
         return HTMLResponse(content="No video provided", status_code=400)
 
+    # prepare model loader
     def _job_runner(job_id: str):
         JOBS[job_id] = {"status": "running", "result": None}
         try:
             model = _load_model(bool(trt_path), trt_path, onnx_path, use_cuda_flag)
-            out_json = process_video(
-                video_path,
-                model,
-                out_dir=str(BASE_DIR / "data"),
-                method="face" if form.get("method_face") == "on" else "body",
-                face_model=DEFAULT_FACE_MODEL,
-                body_model=DEFAULT_BODY_MODEL,
-            )
-
-            # Search target inside detected video persons if target folder is provided
-            matches = []
-            try:
-                if target:
-                    target_emb, target_imgs = build_target_embedding(target, model)
-                    video_persons_dir = BASE_DIR / "data" / "persons"
-                    pids_video, video_embs, video_rep_images = build_gallery_embeddings(str(video_persons_dir), model)
-                    if len(pids_video) > 0:
-                        idxs, scores = search(target_emb, video_embs, topk=10)
-                        for idx, score in zip(idxs, scores):
-                            matches.append({
-                                "pid": pids_video[int(idx)],
-                                "score": float(score),
-                                "rep_image": video_rep_images[int(idx)],
-                            })
-            except Exception as inner:
-                matches = [{"error": f"Target search failed: {inner}"}]
-
+            out_json = process_video(video_path, model, out_dir=str(BASE_DIR / "data"))
             model.close()
             JOBS[job_id]["status"] = "done"
-            JOBS[job_id]["result"] = {"video_json": out_json, "matches": matches}
+            JOBS[job_id]["result"] = out_json
         except Exception as e:
             JOBS[job_id]["status"] = "error"
             JOBS[job_id]["result"] = str(e)
@@ -141,8 +113,8 @@ async def job_result(job_id: str):
         return HTMLResponse(content="job not found", status_code=404)
     if info["status"] != "done":
         return HTMLResponse(content=f"job status: {info['status']}", status_code=400)
-    result = info["result"]
-    return HTMLResponse(content=json.dumps(result, indent=2, ensure_ascii=False), media_type="application/json")
+    path = info["result"]
+    return HTMLResponse(content=f"Result saved: {path}")
 
 
 def _load_model(use_trt_path, trt_path, onnx_path, use_cuda_flag):
@@ -178,44 +150,14 @@ async def run_action(request: Request):
         return HTMLResponse(content=f"Model load error: {e}", status_code=400)
 
     result = {}
-    method_face = form.get("method_face") == "on"
-    cleanup_dirs = []
 
-    if action == "search_target" and method_face:
-        import tempfile
-
-        face_gallery_root = Path(tempfile.mkdtemp(prefix="face_gallery_"))
-        face_target_root = Path(tempfile.mkdtemp(prefix="face_target_"))
-        cleanup_dirs = [face_gallery_root, face_target_root]
-        try:
-            # extract faces from each gallery person folder
-            for pid_dir in sorted(Path(gallery).iterdir()):
-                if not pid_dir.is_dir():
-                    continue
-                out_pid_dir = face_gallery_root / pid_dir.name
-                extract_face_crops(str(pid_dir), str(out_pid_dir), face_model=DEFAULT_FACE_MODEL)
-
-            # extract faces for target search
-            extract_face_crops(target, str(face_target_root), face_model=DEFAULT_FACE_MODEL)
-
-            pids, gallery_embs, rep_images = build_gallery_embeddings(str(face_gallery_root), model)
-            if len(pids) == 0:
-                raise ValueError("No face crops found in gallery for face search")
-            result["gallery_count"] = len(pids)
-            target_search_dir = str(face_target_root)
-        except Exception as e:
-            model.close()
-            for d in cleanup_dirs:
-                shutil.rmtree(d, ignore_errors=True)
-            return HTMLResponse(content=f"Face search error: {e}", status_code=400)
-    else:
-        pids, gallery_embs, rep_images = build_gallery_embeddings(gallery, model)
-        result["gallery_count"] = len(pids)
-        target_search_dir = target
+    # Build gallery embeddings once
+    pids, gallery_embs, rep_images = build_gallery_embeddings(gallery, model)
+    result["gallery_count"] = len(pids)
 
     if action == "search_target":
         try:
-            target_emb, target_imgs = build_target_embedding(target_search_dir, model)
+            target_emb, target_imgs = build_target_embedding(target, model)
         except Exception as e:
             model.close()
             return HTMLResponse(content=f"Target build error: {e}", status_code=400)
@@ -254,9 +196,7 @@ async def run_action(request: Request):
         return HTMLResponse(content="Unknown action", status_code=400)
 
     model.close()
-    for d in cleanup_dirs:
-        shutil.rmtree(d, ignore_errors=True)
-
+    
     # Render results template manually
     with open(BASE_DIR / "templates" / "results.html", "r", encoding="utf-8") as f:
         html = f.read()

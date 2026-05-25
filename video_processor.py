@@ -42,54 +42,14 @@ class SimplePersonGallery:
             return pid
 
 
-def extract_face_crops(src_dir: str,
-                       dst_dir: str,
-                       face_model: str | None = None,
-                       conf: float = 0.35,
-                       iou: float = 0.4,
-                       min_size: int = 32):
-    """Extract faces from a folder of images using YOLO face detector."""
-    from ultralytics import YOLO
-
-    detector = YOLO(face_model or "yolov8n-face.pt")
-    src = Path(src_dir)
-    dst = Path(dst_dir)
-    dst.mkdir(parents=True, exist_ok=True)
-
-    for img_path in sorted(src.glob("*.*")):
-        if img_path.suffix.lower() not in {".jpg", ".jpeg", ".png"}:
-            continue
-        img = cv2.imread(str(img_path))
-        if img is None:
-            continue
-        results = detector(img, conf=conf, iou=iou)
-        crop_index = 0
-        for r in results:
-            if r.boxes is None:
-                continue
-            for box in r.boxes:
-                x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                if (x2 - x1) < min_size or (y2 - y1) < min_size:
-                    continue
-                crop = img[y1:y2, x1:x2]
-                out_path = dst / f"{img_path.stem}_face_{crop_index}.jpg"
-                cv2.imwrite(str(out_path), crop)
-                crop_index += 1
-
-    return str(dst)
-
-
 def process_video(video_path: str,
                   model_backend: object,
                   out_dir: str = "data",
                   skip_frames: int = 1,
                   min_crop_px: int = 32,
-                  threshold: float = 0.65,
-                  method: str = "body",
-                  face_model: str | None = None,
-                  body_model: str | None = None):
+                  threshold: float = 0.65):
     """
-    Simple video processing: detect crops with YOLO (body or face), compute embeddings,
+    Simple video processing: detect person crops (if YOLO available), compute embeddings,
     assign person ids online and save crops + JSON.
 
     Returns path to results JSON.
@@ -100,24 +60,13 @@ def process_video(video_path: str,
     persons_dir.mkdir(parents=True, exist_ok=True)
     json_dir.mkdir(parents=True, exist_ok=True)
 
-    # Try to load a YOLO detector (ultralytics)
+    # Try to load YOLOv8 detector (ultralytics)
     detector = None
-    detector_type = "none"
     try:
         from ultralytics import YOLO
-        if method == "face":
-            model_path = face_model or "yolov8n-face.pt"
-            detector = YOLO(model_path)
-            detector_type = "face"
-        else:
-            model_path = body_model or "yolov8m.pt"
-            detector = YOLO(model_path)
-            detector_type = "body"
-    except Exception as exc:
-        if method == "face":
-            raise RuntimeError(f"Face YOLO detector load failed: {exc}") from exc
+        detector = YOLO('yolov8m.pt')
+    except Exception:
         detector = None
-        detector_type = "none"
 
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -138,11 +87,7 @@ def process_video(video_path: str,
         h, w = frame.shape[:2]
         crops = []
         if detector is not None:
-            conf = 0.35 if detector_type == "face" else 0.45
-            if detector_type == "face":
-                results = detector(frame, conf=conf, iou=0.4)
-            else:
-                results = detector(frame, conf=conf, iou=0.4, classes=[0])
+            results = detector(frame, conf=0.45, iou=0.4, classes=[0])
             for r in results:
                 if r.boxes is None:
                     continue
@@ -198,11 +143,6 @@ def process_video(video_path: str,
     out_path = json_dir / f"persons_{int(time.time())}.json"
     import json as _json
     with open(out_path, "w", encoding="utf-8") as f:
-        _json.dump({
-            "method": method,
-            "detector": detector_type,
-            "video": str(video_path),
-            "saved": saved,
-        }, f, ensure_ascii=False, indent=2)
+        _json.dump(saved, f, ensure_ascii=False, indent=2)
 
     return str(out_path)
